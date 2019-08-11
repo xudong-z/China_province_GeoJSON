@@ -1,0 +1,13 @@
+name: erddap_explorer
+channels:
+  - conda-forge
+dependencies:
+  - python=3.7
+  - appmode
+  - bqplot
+  - erddapy
+  - ipyleaflet=0.9.1
+  - ipywidgets
+  - jupyter
+  - nbconvert=5.4.1
+  - pendulum
