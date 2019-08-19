@@ -1,0 +1,235 @@
+import numpy as np
+import pandas as pd
+import json
+import copy
+import bqplot as bqp
+import seaborn as sns
+from matplotlib import colors as colors
+import matplotlib.pyplot as plt
+# import bqviz as bqv
+from ipyleaflet import *
+from ipywidgets import *
+from IPython.display import display
+import math
+
+
+
+with open('china2.json', encoding='utf-8') as f:
+    province_data = json.load(f)
+    
+port_coordinates = pd.read_csv('port_lat_long.csv')
+
+df_meta = pd.read_excel('Mysteel_tickers.xlsx').set_index('Ticker')
+
+df_port_coord = pd.read_csv('port_lat_long.csv')
+# df_port_coord.head()
+
+# province_data['features'][0]['properties']
+
+
+m = Map(center=[34.14, 120.23], zoom=5, name='Base map', 
+        basemaps=basemaps.OpenStreetMap.DE,
+       layout=Layout(width='600px', height='600px'))
+
+
+polygon_default_layout = {
+    'color': 'grey',
+    'weight':1,
+    'fillColor':'grey',
+    'fillOpacity':0.2,
+    'dashArray':'2'
+}
+
+polygon_highlighted_layout = {
+    'color': 'grey',
+    'weight':1,
+    'fillColor':'green',
+    'fillOpacity':0.2
+}
+
+
+label = Label(value = 'test', layout = Layout(width='20%'))
+
+for feature in province_data['features']:
+    feature['properties']['style'] = polygon_default_layout
+    
+geojson_layer = GeoJSON(data = province_data, name = 'China Provinces', hover_style={'fillColor':'green'})
+
+
+selected_set = set()
+selected_layer = None
+
+def convert_selected_set_to_geojson(selected_set):
+    geojson ={'type': 'FeatureCollection', 'features': []}
+    geojson['features'] = [feature for feature in province_data['features'] if feature['properties']['name'] in selected_set]
+    for feature in data['features']:
+        feature['properties']['style'] = polygon_highlighted_layout
+    return geojson
+
+def selected_on_click_handler(event=None, id=None, properties=None, **args):
+    global selected_layer
+    if properties is None:
+        return
+    cid = properties['name']
+    selected_set.remove(cid)
+    if selected_layer is not None:
+        m.remove_layer(selected_layer)
+    selected_layer = GeoJSON(data = convert_selected_set_to_geojson(selected_set),
+                            name = 'Selected provinces',
+                            hover_style = {'fillcolor': 'green'})
+    selected_layer.on_click(selected_on_click_handler)
+    m.add_layer(selected_layer)
+        
+def geojson_onclick_handler(event=None, id=None, properties=None, **args):
+    global selected_layer
+    if properties is None:
+        return
+    cid = properties['name']
+    selected_set.add(cid)
+    if selected_layer is not None:
+        m.remove_layer(selected_layer)
+    selected_layer = GeoJSON(data = convert_selected_set_to_geojson(selected_set),
+                    name = 'Selected provinces',
+                    hover_style = {'fillcolor':'green'})
+    selected_layer.on_click(selected_on_click_handler)
+    m.add_layer(selected_layer)
+    
+geojson_layer.on_click(geojson_onclick_handler)
+m.add_layer(geojson_layer)
+
+#######################################33
+
+
+### port ###############################################################
+
+
+def get_port_circle_coordinates(port, radius=1):
+    center = df_port_coord.lat_long[df_port_coord.Port_Name == port].reset_index().iloc[0,1].split(',')
+    port_circle = []
+    ii = 60
+    for i in range(ii):
+        lat = float(center[0]) + math.sin(math.pi*2/ii*i)*radius
+        long = float(center[1]) + math.cos(math.pi*2/ii*i)*radius
+        port_circle.append([long,lat])
+        
+    return port_circle
+
+def get_port_color_by_rank(rank):
+    colormap = plt.get_cmap('Blues')
+    i = int(float(colormap.N) * rank / 10) if rank <= 10 else 50
+    rgb = colormap(i)[:3] # will return rgba, we take only first 3 so we get rgb
+    return  colors.rgb2hex(rgb)
+
+def make_port_circle_data(ports):
+    ports_data = {'type': 'FeatureCollection', 'features': []}
+    for rank, port in enumerate(ports,1):
+        color = get_port_color_by_rank(rank)
+        radius = 1- rank/20 if rank <= 10 else 0.3
+        coordinates = get_port_circle_coordinates(port, radius = radius)
+
+        ports_data['features'].append({
+                                    'geometry': {'coordinates': [coordinates], 
+                                                 'type': 'Polygon'},
+                                    'properties':{                                    
+                                        'name': port,
+                                        'popup_location':coordinates[0],
+                                        'last_date': '2019-08-09',
+                                        'last_inventory': '1000mt',
+                                        'style': {'color': color, 
+                                                  'fillColor': color, 
+                                                  'fillOpacity': 0.5, 
+                                                  'weight': 1}},
+                                    'type': 'Feature'
+                                    })
+    return ports_data
+
+ports_data = make_port_circle_data(df_port_coord.Port_Name.tolist())
+port_circle = GeoJSON(data=ports_data, hover_style={'fillColor': 'yellow'}, name = 'Ports')
+
+# def port_hover_popup_handler(event=None, id=None, properties=None, **arg):
+#     message = HTML()
+# #     message.value = '''
+# #                     <h5>{}</h5> <br> 
+# #                     Last date: {} <br>
+# #                     Last inventory: {}
+# #                     '''.format(id, last_date, last_inventory)
+
+#     message.value = 'name'
+#     popup = Popup(
+#     location= [116,34][::-1],
+#     child=message,  
+#     close_button=True,
+#     auto_close=False
+#     )
+#     m.add_layer(popup)
+
+selected_ports = set()
+selected_ports_layer = None
+
+def convert_selected_port_to_geojson(selected_ports):
+    geojson ={'type': 'FeatureCollection', 'features': []}
+    geojson['features'] = [feature for feature in ports_data['features'] if feature['properties']['name'] in selected_ports]
+    for feature in ports_data['features']:
+        feature['properties']['style'] = polygon_highlighted_layout
+    return geojson
+
+def selected_port_on_click_handler(event=None, id=None, properties=None, **args):
+    global selected_ports_layer
+    if properties is None:
+        return
+    cid = properties['name']
+    selected_ports.remove(cid)
+    if selected_ports_layer is not None:
+        m.remove_layer(selected_ports_layer)
+    selected_ports_layer = GeoJSON(data = convert_selected_port_to_geojson(selected_ports),
+                            name = 'Selected ports',
+                            hover_style = {'fillcolor': 'green'})
+    selected_ports_layer.on_click(selected_port_on_click_handler)
+    m.add_layer(selected_ports_layer)
+        
+def geojson_port_onclick_handler(event=None, id=None, properties=None, **args):
+    global selected_ports_layer
+    if properties is None:
+        return
+    cid = properties['name']
+    selected_ports.add(cid)
+    if selected_ports_layer is not None:
+        m.remove_layer(selected_ports_layer)
+    selected_ports_layer = GeoJSON(data = convert_selected_port_to_geojson(selected_ports),
+                    name = 'Selected ports',
+                    hover_style = {'fillcolor':'green'})
+    selected_ports_layer.on_click(selected_port_on_click_handler)
+    m.add_layer(selected_ports_layer)
+    
+    message = HTML()
+    message.value = '''
+                <h5>{}</h5> <br> 
+                Last date: {} <br>
+                Last inventory: {}
+                ''' #.format(id, last_date, last_inventory)
+    popup = Popup(
+                location= [116,34][::-1],
+                child=message,  
+                close_button=True,
+                auto_close=False
+                )
+    m.add_layer(popup)
+    
+# geojson_layer.on_click(geojson_onclick_handler)
+# m.add_layer(geojson_layer)
+
+
+port_circle.on_click(geojson_port_onclick_handler)
+m.add_layer(port_circle)
+m
+
+# convert_selected_port_to_geojson(['Lianyungang Port', 'Ningbo Port'])
+
+
+
+
+
+
+
+
+# m
