@@ -1,0 +1,107 @@
+import json
+import pandas as pd
+import numpy as np
+import datetime
+
+import bqplot as bq
+import matplotlib.pyplot as plt
+from matplotlib import colors as colors
+from  ipywidgets import *
+from IPython.display import display
+import math
+
+with open('china2.json', encoding='utf-8') as f:
+    province_data = json.load(f)
+    
+
+df_port_coord = pd.read_csv('port_lat_long.csv')
+df_meta = pd.read_excel('s_tickers.xlsx').set_index('Ticker')
+    
+### port data ###############################################################
+
+
+def get_port_circle_coordinates(port, radius=1):
+    center = df_port_coord.lat_long[df_port_coord.Port_Name == port].reset_index().iloc[0,1].split(',')
+    port_circle = []
+    ii = 60
+    for i in range(ii):
+        lat = float(center[0]) + math.sin(math.pi*2/ii*i)*radius
+        long = float(center[1]) + math.cos(math.pi*2/ii*i)*radius
+        port_circle.append([long,lat])
+        
+    return port_circle
+
+def get_port_color_by_rank(rank):
+    colormap = plt.get_cmap('Blues')
+    i = int(float(colormap.N) * rank / 10) if rank <= 10 else 50
+    rgb = colormap(i)[:3] # will return rgba, we take only first 3 so we get rgb
+    return  colors.rgb2hex(rgb)
+
+def make_port_circle_data(ports):
+    ports_data = {'type': 'FeatureCollection', 'features': []}
+    for rank, port in enumerate(ports,1):
+        color = get_port_color_by_rank(rank)
+        radius = 1- rank/20 if rank <= 10 else 0.3
+        coordinates = get_port_circle_coordinates(port, radius = radius)
+
+        province_data['features'].append({
+                                    'geometry': {'coordinates': [coordinates], 
+                                                 'type': 'Polygon'},
+                                    'properties':{                                    
+                                        'name': port,
+                                        'popup_location':coordinates[0],
+                                        'last_date': '2019-08-09',
+                                        'last_inventory': '1000mt',
+                                        'style': {'color': color, 
+                                                  'fillColor': color, 
+                                                  'fillOpacity': 0.5, 
+                                                  'weight': 1}},
+                                    'type': 'Feature'
+                                    })
+    return province_data
+
+province_ports_data = make_port_circle_data(df_port_coord.Port_Name.tolist())
+len(province_ports_data['features'])
+
+
+
+------------
+for f in province_ports_data['features']:
+    print (f['geometry']['type'])
+# province_ports_data['features'][1].keys()
+
+------------------
+
+sc_c1 = bq.ColorScale(scheme = 'Reds')
+axis = bq.ColorAxis(scale = sc_c1 )
+sc_geo = bq.Mercator(scale_factor = 1500, center = [118,35])
+inventory_tt = bq.Tooltip(fields = ['Test'])
+map_style = {'scales': {'projection': sc_geo, 'color':sc_c1},
+#             'tooltip': inventory_tt,
+            'colors': {'default_color':'#151515'},
+            'stroke_color': 'white'}
+# test = bq.GeoScale()
+# panzoom = bq.PanZoom(scales={'x': [test], 'y': [test]})
+
+map_province = bq.Map(map_data = ports_data, **map_style)
+map_port = bq.Map(map_data = ports_data, **map_style)
+map_world = bq.Map(map_data = bq.topo_load('map_data/WorldMap.json'), **map_style)
+
+map_province.interactions = {'click':'', 'hover':''}
+map_port.interactions = {'click':None, 'hover':None}
+
+# map_mark.enable_hover = True
+
+
+m = bq.Figure(marks=[map_province], 
+#               axes = [axis],
+             title = 'China Map',
+             background_style = {'fill':'#102838'},
+#             interaction=panzoom,
+             layout = Layout(width ='62%', height = '600px'))
+
+# order_slider = IntSlider(description='Order', min=1, max=5, value=1)
+# order_slider.observe(params_changed, 'value')
+
+m
+# map_mark
